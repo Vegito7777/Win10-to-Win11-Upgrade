@@ -1,0 +1,96 @@
+# Function to check Windows 11 compatibility
+function Check-Windows11Compatibility {
+    $computerInfo = Get-ComputerInfo
+
+# Check for TPM version 2.0
+$tpm = Get-WmiObject -Namespace "Root\CIMv2\Security\MicrosoftTpm" -Class Win32_Tpm
+# Check if SpecVersion contains "2.0"
+if ($tpm.SpecVersion -match "2\.0") {
+    Write-Host "This system has TPM 2.0."
+    return $true
+} else {
+    Write-Host "This system does not have TPM 2.0, which is required for Windows 11."
+    return $false
+}
+
+
+    # Check for CPU requirements (1 GHz or faster with 2 or more cores)
+    $cpu = Get-WmiObject -Class Win32_Processor
+    if ($cpu.MaxClockSpeed -lt 1000 -or $cpu.NumberOfCores -lt 2) {
+        Write-Host "The CPU does not meet the minimum requirements for Windows 11."
+        return $false
+    }
+
+  
+    # Check for RAM (minimum 4GB)
+    if ($computerInfo.TotalPhysicalMemory / 1GB -lt 4) {
+        Write-Host "This system has less than 4GB of RAM, which is required for Windows 11."
+        return $false
+    }
+
+    # Check for storage (minimum 64 GB)
+    $diskSpace = (Get-WmiObject -Class Win32_LogicalDisk | Where-Object { $_.DeviceID -eq "C:" }).Size
+    if ($diskSpace / 1GB -lt 64) {
+        Write-Host "This system has less than 64GB of storage, which is required for Windows 11."
+        return $false
+    }
+
+    # Check for UEFI and Secure Boot
+    $firmwareType = (Get-WmiObject -Class Win32_BIOS).FirmwareType
+    if ($firmwareType -ne "UEFI") {
+        Write-Host "This system is not running UEFI, which is required for Windows 11."
+        return $false
+    }
+    $secureBoot = Get-WmiObject -Class Win32_BootConfiguration
+    if ($secureBoot.SecureBootEnabled -ne $true) {
+        Write-Host "Secure Boot is not enabled, which is required for Windows 11."
+        return $false
+    }
+
+    # Check for graphics (DirectX 12 or later with WDDM 2.0 driver)
+    $graphics = Get-WmiObject -Class Win32_VideoController
+    if ($graphics.DriverVersion -lt "2.0" -or $graphics.VideoProcessor -notmatch "DirectX") {
+        Write-Host "The graphics card is not compatible with DirectX 12 or later, which is required for Windows 11."
+        return $false
+    }
+
+    # Check for display (720p or larger)
+    $screen = Get-WmiObject -Class Win32_DesktopMonitor
+    if ($screen.ScreenHeight -lt 720) {
+        Write-Host "The display resolution is less than 720p, which is required for Windows 11."
+        return $false
+    }
+
+    
+    # If all checks pass, return true
+    Write-Host "This system is compatible with Windows 11."
+    return $true
+}
+
+# Main script
+$dir = "C:\temp\Win11"  # Set the directory path where you want to copy logs
+
+# Ensure the log directory exists
+if (-not (Test-Path -Path $dir)) {
+    New-Item -ItemType Directory -Path $dir
+}
+
+
+
+# Check Windows 11 compatibility and continue with the installation if compatible
+if (Check-Windows11Compatibility) {
+    # Download the Windows 11 Installation Assistant
+    $installerUrl = "https://go.microsoft.com/fwlink/?linkid=2171764"
+    $installerPath = "$env:TEMP\Windows11InstallationAssistant.exe"
+    Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+
+    # Run the installer with /auto upgrade, /skipEULA, and /copylogs parameters
+    Start-Process -FilePath $installerPath -ArgumentList "/SkipSelfUpdate /SkipEULA /SkipCompatCheck /QuietInstall /copylogs $dir" -Wait
+  
+    Get-Process windows10upgraderapp -ErrorAction SilentlyContinue | Wait-Process
+
+    # Clean up
+    Remove-Item -Path $installerPath
+} else {
+    Write-Host "System is not compatible with Windows 11. Upgrade aborted."
+}
