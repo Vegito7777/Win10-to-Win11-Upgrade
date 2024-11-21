@@ -84,8 +84,8 @@ if (Check-Windows11Compatibility) {
     $installerPath = "$env:TEMP\Windows11InstallationAssistant.exe"
     Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
 
-    # Run the installer with /auto upgrade, /skipEULA, and /copylogs parameters
-    Start-Process -FilePath $installerPath -ArgumentList "/SkipSelfUpdate /SkipEULA /SkipCompatCheck /QuietInstall /copylogs $dir" -Wait
+    # Run the installer with parameters
+    Start-Process -FilePath $installerPath -ArgumentList "/SkipSelfUpdate /SkipEULA /SkipCompatCheck /QuietInstall /NoRestartUI /copylogs $dir" -Wait
   
     Get-Process windows10upgraderapp -ErrorAction SilentlyContinue | Wait-Process
 
