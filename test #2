@@ -1,0 +1,204 @@
+# Function to check Windows 11 compatibility
+function Check-Windows11Compatibility {
+    $computerInfo = Get-ComputerInfo
+    $logDir = "C:\temp\Win11"
+    if (-not (Test-Path -Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir
+    }
+    $logFile = "$logDir\compatibility_check.log"
+
+    # Log function
+    function Log {
+        param([string]$message)
+        Write-Host $message
+        Add-Content -Path $logFile -Value $message
+    }
+
+    # Check for TPM version 2.0
+    try {
+        $tpm = Get-CimInstance -Namespace "Root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm
+        if ($tpm.SpecVersion -match "2\.0") {
+            Log "TPM 2.0 is present."
+        } else {
+            Log "TPM 2.0 is missing. Incompatible with Windows 11."
+            return $false
+        }
+    } catch {
+        Log "Failed to check TPM: $_"
+        return $false
+    }
+
+    # Check CPU requirements
+    $cpu = Get-WmiObject -Class Win32_Processor
+    if ($cpu.MaxClockSpeed -lt 1000 -or $cpu.NumberOfCores -lt 2) {
+        Log "CPU does not meet Windows 11 requirements."
+        return $false
+    } else {
+        Log "CPU requirements met."
+    }
+
+    # Check for RAM (minimum 4GB)
+    if ($computerInfo.TotalPhysicalMemory / 1GB -lt 4) {
+        Log "Insufficient RAM (<4GB)."
+        return $false
+    } else {
+        Log "RAM requirements met."
+    }
+
+    # Check for storage (minimum 64GB)
+    $diskSpace = (Get-WmiObject -Class Win32_LogicalDisk | Where-Object { $_.DeviceID -eq "C:" }).Size
+    if ($diskSpace / 1GB -lt 64) {
+        Log "Insufficient disk space (<64GB)."
+        return $false
+    } else {
+        Log "Disk space requirements met."
+    }
+
+    # Check for UEFI and Secure Boot
+    try {
+        $firmwareType = (Get-WmiObject -Class Win32_BIOS).FirmwareType
+        if ($firmwareType -eq "UEFI") {
+            Log "UEFI is enabled."
+        } else {
+            Log "UEFI is not enabled. Incompatible with Windows 11."
+            return $false
+        }
+
+        $secureBootEnabled = Get-CimInstance -ClassName Win32_BootConfiguration | Select-Object -ExpandProperty SecureBootEnabled
+        if ($secureBootEnabled -eq $true) {
+            Log "Secure Boot is enabled."
+        } else {
+            Log "Secure Boot is not enabled. Incompatible with Windows 11."
+            return $false
+        }
+    } catch {
+        Log "Failed to check UEFI and Secure Boot: $_"
+        return $false
+    }
+
+    # Check for graphics (DirectX 12 or later with WDDM 2.0 driver)
+    try {
+        $graphics = Get-WmiObject -Class Win32_VideoController
+        if ($graphics.DriverVersion -ge "2.0" -and $graphics.VideoProcessor -match "DirectX") {
+            Log "Graphics card is compatible with DirectX 12 or later."
+        } else {
+            Log "Graphics card is not compatible with DirectX 12."
+            return $false
+        }
+    } catch {
+        Log "Failed to check graphics compatibility: $_"
+        return $false
+    }
+
+    # Check for display (720p or larger)
+    try {
+        $screen = Get-WmiObject -Class Win32_DesktopMonitor
+        if ($screen.ScreenHeight -ge 720) {
+            Log "Display resolution meets requirements (720p or larger)."
+        } else {
+            Log "Display resolution is less than 720p."
+            return $false
+        }
+    } catch {
+        Log "Failed to check display resolution: $_"
+        return $false
+    }
+
+    Log "System meets all compatibility requirements for Windows 11."
+    return $true
+}
+
+# Main script
+$logDir = "C:\temp\Win11"
+if (-not (Test-Path -Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir
+}
+$logFile = "$logDir\install.log"
+$installerUrl = "https://go.microsoft.com/fwlink/?linkid=2171764"
+$installerPath = "$env:TEMP\Windows11InstallationAssistant.exe"
+
+# Log function
+function Log {
+    param([string]$message)
+    Write-Host $message
+    Add-Content -Path $logFile -Value $message
+}
+
+Log "Starting Windows 11 installation script."
+
+if (Check-Windows11Compatibility) {
+    try {
+        Log "Downloading Windows 11 Installation Assistant..."
+        Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+        Log "Download complete."
+
+        Log "Running Windows 11 Installation Assistant..."
+        $process = Start-Process -FilePath $installerPath -ArgumentList "/SkipSelfUpdate /SkipEULA /SkipCompatCheck /QuietInstall /NoRestartUI /copylogs $logDir" -PassThru -Wait
+
+        Log "Installation Assistant completed. Exit code: $($process.ExitCode)"
+        if ($process.ExitCode -ne 0) {
+            Log "Installation failed with exit code $($process.ExitCode). Check logs for details."
+            Exit $process.ExitCode
+        }
+    } catch {
+        Log "An error occurred during the installation process: $_"
+        Exit 1
+    }
+} else {
+    Log "System is not compatible with Windows 11. Upgrade aborted."
+    Write-Host "System does not meet the requirements for Windows 11. Please check the compatibility logs."
+}
+
+
+ # Function to check if a reboot is pending
+function IsRebootPending {
+    # Check various indicators of pending reboots
+    $pendingRebootKeys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+        "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations"
+    )
+    
+    foreach ($key in $pendingRebootKeys) {
+        if (Test-Path $key) {
+            return $true
+        }
+    }
+
+    # Check WMI for reboot pending state
+    $pending = Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object -ExpandProperty RebootPending -ErrorAction SilentlyContinue
+    if ($pending -eq $true) {
+        return $true
+    }
+
+    # No reboot pending
+    return $false
+}
+
+# Main logic
+if (IsRebootPending) {
+    Log "A system reboot is required to complete the Windows 11 installation."
+    
+    # Set a marker file for tracking
+    $markerFile = "C:\temp\Win11\upgrade_initiated.txt"
+    Set-Content -Path $markerFile -Value "Windows 11 installation was initiated on $(Get-Date). Please verify after reboot."
+
+    try {
+        Shutdown /r /t 60 /c "Rebooting to complete Windows 11 installation. The system will restart in 1 minute."
+        Log "System reboot scheduled to complete the Windows 11 installation."
+    } catch {
+        Log "Failed to schedule reboot: $_"
+        Exit 1
+    }
+} else {
+    Log "No reboot is required at this time. Please verify installation manually."
+}
+
+
+# Cleanup
+if (Test-Path -Path $installerPath) {
+    Remove-Item -Path $installerPath
+    Log "Installer cleanup complete."
+}
+
+Log "Windows 11 installation script finished."
