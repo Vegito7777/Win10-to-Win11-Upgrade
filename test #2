@@ -29,77 +29,75 @@ function Check-Windows11Compatibility {
     }
 
     # Check CPU requirements
-try {
-    $cpu = Get-WmiObject -Class Win32_Processor
-    if ($cpu.MaxClockSpeed -lt 1000 -or $cpu.NumberOfCores -lt 2) {
-        Log "CPU does not meet Windows 11 requirements. Max Clock Speed: $($cpu.MaxClockSpeed) MHz, Number of Cores: $($cpu.NumberOfCores)."
+    try {
+        $cpu = Get-WmiObject -Class Win32_Processor
+        if ($cpu.MaxClockSpeed -lt 1000 -or $cpu.NumberOfCores -lt 2) {
+            Log "CPU does not meet Windows 11 requirements. Max Clock Speed: $($cpu.MaxClockSpeed) MHz, Number of Cores: $($cpu.NumberOfCores)."
+            return $false
+        } else {
+            Log "CPU requirements met. Max Clock Speed: $($cpu.MaxClockSpeed) MHz, Number of Cores: $($cpu.NumberOfCores)."
+        }
+    } catch {
+        Log "Failed to check CPU: $_"
         return $false
-    } else {
-        Log "CPU requirements met. Max Clock Speed: $($cpu.MaxClockSpeed) MHz, Number of Cores: $($cpu.NumberOfCores)."
-    }
-} catch {
-    Log "Failed to check CPU: $_"
-    return $false
-}
-
-    # Check for RAM (minimum 4GB)
-    $totalRAM = [math]::round($computerInfo.TotalPhysicalMemory / 1GB, 2)
-    if ($totalRAM -lt 4) {
-        Log "Insufficient RAM (<4GB). Total RAM: $totalRAM GB."
-        return $false
-    } else {
-        Log "RAM requirements met. Total RAM: $totalRAM GB."
     }
 
- # Check for storage (minimum 64GB)
-$diskSpace = (Get-CimInstance -ClassName Win32_LogicalDisk | Where-Object { $_.DeviceID -eq "C:" }).Size
-
-# Convert disk space from bytes to GB
-$diskSpaceGB = [math]::round($diskSpace / 1GB, 2)
-
-# Check if disk space is less than 64GB
-if ($diskSpaceGB -lt 64) {
-    Log "Insufficient disk space (<64GB). Actual space: $diskSpaceGB GB."
+$computerInfo = Get-CimInstance -ClassName Win32_ComputerSystem
+$totalRAM = [math]::round($computerInfo.TotalPhysicalMemory / 1GB, 2)
+if ($totalRAM -lt 4) {
+    Write-Output "Insufficient RAM (<4GB). Total RAM: $totalRAM GB."
     return $false
 } else {
-    Log "Disk space requirements met. Actual space: $diskSpaceGB GB."
+    Write-Output "RAM requirements met. Total RAM: $totalRAM GB."
 }
 
+    # Check for storage (minimum 64GB)
+    $diskSpace = (Get-CimInstance -ClassName Win32_LogicalDisk | Where-Object { $_.DeviceID -eq "C:" }).Size
 
-   # Check for UEFI and Secure Boot capability
-try {
-    # Check if UEFI is enabled by checking the firmware type
-    $firmwareType = (Get-WmiObject -Class Win32_BIOS).FirmwareType
-    if ($firmwareType -eq "UEFI") {
-        Log "UEFI is enabled."
+    # Convert disk space from bytes to GB
+    $diskSpaceGB = [math]::round($diskSpace / 1GB, 2)
+
+    # Check if disk space is less than 64GB
+    if ($diskSpaceGB -lt 64) {
+        Log "Insufficient disk space (<64GB). Actual space: $diskSpaceGB GB."
+        return $false
     } else {
-        Log "UEFI is not enabled. This system is not UEFI-capable. Installation will proceed, but UEFI can be enabled later."
+        Log "Disk space requirements met. Actual space: $diskSpaceGB GB."
     }
 
-    # Check if Secure Boot is enabled
-    $secureBootEnabled = (Get-CimInstance -ClassName Win32_OperatingSystem).SecureBootEnabled
-    if ($secureBootEnabled -eq $true) {
-        Log "Secure Boot is enabled."
-    } else {
-        Log "Secure Boot is not enabled, but the system is UEFI-capable. Secure Boot can be enabled later if UEFI is active."
+    # Check for UEFI and Secure Boot capability
+    try {
+        # Check if UEFI is enabled by checking the firmware type
+        $firmwareType = (Get-WmiObject -Class Win32_BIOS).FirmwareType
+        if ($firmwareType -eq "UEFI") {
+            Log "UEFI is enabled."
+        } else {
+            Log "UEFI is not enabled. This system is not UEFI-capable. Installation will proceed, but UEFI can be enabled later."
+        }
+
+        # Check if Secure Boot is enabled
+        $secureBootEnabled = (Get-CimInstance -ClassName Win32_OperatingSystem).SecureBootEnabled
+        if ($secureBootEnabled -eq $true) {
+            Log "Secure Boot is enabled."
+        } else {
+            Log "Secure Boot is not enabled, but the system is UEFI-capable. Secure Boot can be enabled later if UEFI is active."
+        }
+
+        # Check if Secure Boot is capable
+        $secureBootCapable = (Get-CimInstance -ClassName Win32_BootConfiguration).SecureBootEnabled
+        if ($secureBootCapable -eq $null) {
+            Log "Unable to determine if Secure Boot is capable on this system."
+        } else {
+            Log "System is capable of Secure Boot."
+        }
+
+        # Proceed with the installation regardless of UEFI and Secure Boot status
+        Log "Proceeding with installation... UEFI and Secure Boot will need to be configured by a tech in the future."
+
+    } catch {
+        Log "Failed to check UEFI and Secure Boot capability: $_"
+        return $false
     }
-
-    # Check if Secure Boot is capable
-    $secureBootCapable = (Get-CimInstance -ClassName Win32_BootConfiguration).SecureBootEnabled
-    if ($secureBootCapable -eq $null) {
-        Log "Unable to determine if Secure Boot is capable on this system."
-    } else {
-        Log "System is capable of Secure Boot."
-    }
-
-    # Proceed with the installation regardless of UEFI and Secure Boot status
-    Log "Proceeding with installation... UEFI and Secure Boot will be need to be configured by a tech in the future."
-
-} catch {
-    Log "Failed to check UEFI and Secure Boot capability: $_"
-    return $false
-}
-
 
     # Check for graphics (DirectX 12 or later with WDDM 2.0 driver)
     try {
@@ -116,22 +114,23 @@ try {
     }
 
     # Check for display resolution (720p or larger)
-try {
-    $display = Get-WmiObject -Class Win32_VideoController
-    $screenWidth = $display.CurrentHorizontalResolution
-    $screenHeight = $display.CurrentVerticalResolution
+    try {
+        $display = Get-WmiObject -Class Win32_VideoController
+        $screenWidth = $display.CurrentHorizontalResolution
+        $screenHeight = $display.CurrentVerticalResolution
 
-    if ($screenWidth -ge 1280 -and $screenHeight -ge 720) {
-        Log "Display resolution is at least 720p: $screenWidth x $screenHeight."
-    } else {
-        Log "Display resolution is smaller than 720p: $screenWidth x $screenHeight."
+        if ($screenWidth -ge 1280 -and $screenHeight -ge 720) {
+            Log "Display resolution is at least 720p: $screenWidth x $screenHeight."
+        } else {
+            Log "Display resolution is smaller than 720p: $screenWidth x $screenHeight."
+            return $false
+        }
+    } catch {
+        Log "Failed to check display resolution: $_"
         return $false
     }
-} catch {
-    Log "Failed to check display resolution: $_"
-    return $false
-}
 
+} # <-- Closing brace for Check-Windows11Compatibility function
 
 # Main script
 $logDir = "C:\temp\Win11"
